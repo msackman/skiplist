@@ -56,7 +56,6 @@ func New(rng *rand.Rand) *SkipList {
 	s.levelProbabilities = []float32{p}
 	terminus.skiplist = s
 	s.determineCapacity()
-	s.nodes = make([]Node, s.curCapacity)
 
 	return s
 }
