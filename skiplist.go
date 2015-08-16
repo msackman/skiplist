@@ -23,6 +23,7 @@ type SkipList struct {
 	levelProbabilities []float32
 	curCapacity        uint
 	curDepth           uint
+	nodes              []Node
 	localRand          *rand.Rand
 }
 
@@ -55,6 +56,7 @@ func New(rng *rand.Rand) *SkipList {
 	s.levelProbabilities = []float32{p}
 	terminus.skiplist = s
 	s.determineCapacity()
+	s.nodes = make([]Node, s.curCapacity)
 
 	return s
 }
@@ -105,6 +107,15 @@ func (s *SkipList) ensureCapacity() {
 			cur = next
 		}
 	}
+}
+
+func (s *SkipList) getNode() *Node {
+	if len(s.nodes) == 0 {
+		s.nodes = make([]Node, s.curCapacity)
+	}
+	n := &s.nodes[0]
+	s.nodes = s.nodes[1:]
+	return n
 }
 
 func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, captureDescent bool) (*Node, []*Node) {
@@ -175,22 +186,14 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 	// where k should go.
 	heightRand, height := s.chooseNumLevels()
 	if n == nil {
-		n = &Node{
-			Key:        k,
-			Value:      v,
-			heightRand: heightRand,
-			nexts:      make([]*Node, height),
-			prev:       cur,
-			skiplist:   s,
-		}
-	} else {
-		n.Key = k
-		n.Value = v
-		n.heightRand = heightRand
-		n.nexts = make([]*Node, height)
-		n.prev = cur
-		n.skiplist = s
+		n = s.getNode()
 	}
+	n.Key = k
+	n.Value = v
+	n.heightRand = heightRand
+	n.nexts = make([]*Node, height)
+	n.prev = cur
+	n.skiplist = s
 	s.length++
 
 	if len(cur.nexts) >= len(n.nexts) {
