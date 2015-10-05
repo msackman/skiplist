@@ -238,6 +238,31 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestReposition(t *testing.T) {
+	s := New(rng)
+	lim := 200
+	for idx := 0; idx < lim; idx++ {
+		s.Insert(intKey(idx*5), idx)
+	}
+	for idx := lim - 1; idx >= 0; idx-- {
+		n := s.Get(intKey(idx * 5))
+		if n == nil {
+			t.Fatal("Unable to find node")
+		}
+		n.Reposition(intKey((idx * 5) - 11))
+	}
+	n := s.First()
+	for idx := 0; idx < lim; idx++ {
+		if n.Value != idx {
+			t.Fatal("Wrong value", idx, n)
+		}
+		n = n.Next()
+	}
+	if n != nil {
+		t.Fatal("Too many values!")
+	}
+}
+
 func BenchmarkAdd08192(b *testing.B) { benchmarkAdd(8192, b) }
 func BenchmarkAdd16384(b *testing.B) { benchmarkAdd(16384, b) }
 func BenchmarkAdd32768(b *testing.B) { benchmarkAdd(32768, b) }

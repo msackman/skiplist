@@ -57,6 +57,8 @@ func New(rng *rand.Rand) *SkipList {
 	terminus.skiplist = s
 	s.determineCapacity()
 
+	// s.validate()
+
 	return s
 }
 
@@ -78,6 +80,7 @@ func (s *SkipList) chooseNumLevels() (float32, int) {
 }
 
 func (s *SkipList) ensureCapacity() {
+	// defer s.validate()
 	if s.length < s.curCapacity {
 		return
 	}
@@ -118,6 +121,8 @@ func (s *SkipList) getNode() *Node {
 }
 
 func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, captureDescent bool) (*Node, []*Node) {
+	// defer s.validate()
+
 	if s.length == 0 {
 		return s.terminus, nil
 	}
@@ -173,6 +178,8 @@ func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, captureDescent bool)
 }
 
 func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node {
+	// defer s.validate()
+
 	// do this first even though we may not need to - if we do it after
 	// the getEqOrLessThan call, we may break descent.
 	s.ensureCapacity()
@@ -193,7 +200,6 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 	n.nexts = make([]*Node, height)
 	n.prev = cur
 	n.skiplist = s
-	s.length++
 
 	if len(cur.nexts) >= len(n.nexts) {
 		for idx := 0; idx < len(n.nexts); idx++ {
@@ -220,10 +226,13 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 		}
 	}
 	n._next().prev = n
+	s.length++
 	return n
 }
 
 func (s *SkipList) remove(cur *Node, k Comparable) interface{} {
+	// defer s.validate()
+
 	n, _ := s.getEqOrLessThan(cur, k, false)
 	if n == s.terminus || !n.Key.Equal(k) {
 		return nil
@@ -234,9 +243,11 @@ func (s *SkipList) remove(cur *Node, k Comparable) interface{} {
 }
 
 func (s *SkipList) removeNode(n *Node) {
-	s.length--
+	// defer s.validate()
+
 	p := n.prev
 	n._next().prev = p
+	s.length--
 	for idx := 0; idx < len(p.nexts) && idx < len(n.nexts); idx++ {
 		p.nexts[idx] = n.nexts[idx]
 	}
@@ -252,17 +263,20 @@ func (s *SkipList) removeNode(n *Node) {
 	}
 }
 
-func (s *SkipList) reposition(cur *Node) {
+func (s *SkipList) reposition(cur *Node, k Comparable) {
+	// defer s.validate()
+
 	needsMove := false
 	if cur != s.terminus {
-		if cur.prev != s.terminus && !cur.prev.Key.LessThan(cur.Key) {
+		if cur.prev != s.terminus && !cur.prev.Key.LessThan(k) {
 			needsMove = true
-		} else if n := cur._next(); n != s.terminus && !cur.Key.LessThan(n.Key) {
+		} else if n := cur._next(); n != s.terminus && !k.LessThan(n.Key) {
 			needsMove = true
 		}
 	}
 	if needsMove {
 		s.removeNode(cur)
+		cur.Key = k
 		s.insert(cur.prev, cur.Key, cur.Value, cur)
 	}
 }
@@ -293,11 +307,47 @@ func (s *SkipList) Len() uint {
 
 // NB: this destroys t. Do not use t after this.
 func (s *SkipList) Merge(t *SkipList) {
+	// defer s.validate()
+
 	cur := s.terminus
 	for n := t.First(); n != nil; {
 		m := n.Next() // need to save this out before we destroy it in the insert
 		cur = s.insert(cur, n.Key, n.Value, n)
 		n = m
+	}
+}
+
+func (s *SkipList) validate() {
+	visited := make(map[*Node]bool, int(s.length))
+	cur := s.terminus
+	visited[cur] = true
+	l := uint(0)
+	for {
+		if cur != s.terminus {
+			l++
+		}
+		for h, n := range cur.nexts {
+			if h >= len(n.nexts) {
+				panic(fmt.Sprintf("Node (%v) has next pointer at level %v pointing down to node (%v) which has %v height", cur, h, n, len(n.nexts)))
+			}
+		}
+		n := cur._next()
+		if n == s.terminus {
+			break
+		}
+		if visited[n] {
+			panic(fmt.Sprintf("Node (%v) has next as %v which is already visited!", cur, n))
+		}
+		if cur != s.terminus && !cur.Key.LessThan(n.Key) {
+			panic(fmt.Sprintf("Node keys in wrong order: expecting %v < %v", cur.Key, n.Key))
+		}
+		if n.prev != cur {
+			panic(fmt.Sprintf("Node (%v) has next (%v) which does not point back correctly", cur, n))
+		}
+		cur = n
+	}
+	if l != s.length {
+		panic(fmt.Sprintf("length is wrong: counted %v but length is %v", l, s.length))
 	}
 }
 
@@ -338,8 +388,8 @@ func (n *Node) Prev() *Node {
 	}
 }
 
-func (n *Node) Reposition() {
-	n.skiplist.reposition(n)
+func (n *Node) Reposition(k Comparable) {
+	n.skiplist.reposition(n, k)
 }
 
 func (n *Node) nullify() {
