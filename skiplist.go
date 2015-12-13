@@ -112,11 +112,14 @@ func (s *SkipList) ensureCapacity() {
 }
 
 func (s *SkipList) getNode() *Node {
-	if len(s.nodes) == 0 {
-		s.nodes = make([]Node, s.curCapacity)
+	l := len(s.nodes)
+	if l == 0 {
+		l = int(s.curCapacity)
+		s.nodes = make([]Node, l)
 	}
-	n := &s.nodes[0]
-	s.nodes = s.nodes[1:]
+	l--
+	n := &s.nodes[l]
+	s.nodes = s.nodes[:l]
 	return n
 }
 
