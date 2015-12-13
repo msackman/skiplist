@@ -326,6 +326,12 @@ func (s *SkipList) validate() {
 		if cur != s.terminus {
 			l++
 		}
+		if cur._next().prev != cur {
+			panic(fmt.Sprintf("Node (%v) has next pointer to %v, which has prev pointer to %v", cur, cur._next(), cur._next().prev))
+		}
+		if cur.prev._next() != cur {
+			panic(fmt.Sprintf("Node (%v) has prev pointer to %v, which has next pointer to %v", cur, cur.prev, cur.prev._next()))
+		}
 		for h, n := range cur.nexts {
 			if h >= len(n.nexts) {
 				panic(fmt.Sprintf("Node (%v) has next pointer at level %v pointing down to node (%v) which has %v height", cur, h, n, len(n.nexts)))
