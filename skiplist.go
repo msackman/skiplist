@@ -47,7 +47,7 @@ type Node struct {
 func New(rng *rand.Rand) *SkipList {
 	depth := defaultDepth
 
-	pair := struct {
+	pair := &struct {
 		SkipList
 		Node
 	}{
