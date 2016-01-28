@@ -9,12 +9,16 @@ import (
 
 type intKey int
 
-func (sk intKey) LessThan(b Comparable) bool {
-	return sk < b.(intKey)
-}
-
-func (sk intKey) Equal(b Comparable) bool {
-	return sk == b.(intKey)
+func (sk intKey) Compare(b Comparable) Cmp {
+	bk := b.(intKey)
+	switch {
+	case sk < bk:
+		return LT
+	case sk > bk:
+		return GT
+	default:
+		return EQ
+	}
 }
 
 const (
