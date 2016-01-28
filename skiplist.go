@@ -24,6 +24,7 @@ type SkipList struct {
 	curCapacity        uint
 	curDepth           uint
 	nodes              []Node
+	ptrs               []*Node
 	localRand          *rand.Rand
 }
 
@@ -54,10 +55,11 @@ func New(rng *rand.Rand) *SkipList {
 		localRand: rng,
 	}
 	s.levelProbabilities = []float32{p}
+	//s.ptrs = make([]*Node, s.curDepth*(s.length+1))
 	terminus.skiplist = s
 	s.determineCapacity()
 
-	// s.validate()
+	s.validate()
 
 	return s
 }
@@ -68,15 +70,15 @@ func (s *SkipList) determineCapacity() {
 	s.curCapacity = uint(math.Floor(capacity))
 }
 
-func (s *SkipList) chooseNumLevels() (float32, int) {
+func (s *SkipList) chooseNumLevels() (float32, int, bool) {
 	r := s.localRand.Float32()
 	max := len(s.levelProbabilities)
 	for idx := 0; idx < max; idx++ {
 		if r > s.levelProbabilities[idx] {
-			return r, idx + 1
+			return r, idx + 1, true
 		}
 	}
-	return r, max + 1
+	return r, max + 1, false
 }
 
 func (s *SkipList) ensureCapacity() {
@@ -123,6 +125,15 @@ func (s *SkipList) getNode() *Node {
 	return n
 }
 
+func (s *SkipList) nextPtrs(l int) []*Node {
+	if len(s.ptrs) < l {
+		s.ptrs = make([]*Node, s.curDepth*(s.length+1))
+	}
+	var ptrs []*Node
+	ptrs, s.ptrs = s.ptrs[:l], s.ptrs[l:]
+	return ptrs
+}
+
 func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, captureDescent bool) (*Node, []*Node) {
 	// defer s.validate()
 
@@ -156,7 +167,7 @@ func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, captureDescent bool)
 	// 2. Now descend as needed
 	var descent []*Node
 	if captureDescent {
-		descent = make([]*Node, lvl+1)
+		descent = s.nextPtrs(lvl + 1)
 		descent[lvl] = cur
 	}
 	for lvl--; lvl >= 0; lvl-- {
@@ -193,21 +204,24 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 	}
 	// We didn't find k, so cur will be the node immediately prior to
 	// where k should go.
-	heightRand, height := s.chooseNumLevels()
+	heightRand, height, fixed := s.chooseNumLevels()
 	if n == nil {
 		n = s.getNode()
 	}
 	n.Key = k
 	n.Value = v
 	n.heightRand = heightRand
-	n.nexts = make([]*Node, height)
 	n.prev = cur
 	n.skiplist = s
 
-	if len(cur.nexts) >= len(n.nexts) {
-		for idx := 0; idx < len(n.nexts); idx++ {
-			n.nexts[idx] = cur.nexts[idx]
-			cur.nexts[idx] = n
+	if len(cur.nexts) >= height {
+		if len(descent) >= height && fixed {
+			n.nexts = descent[:height]
+		} else {
+			n.nexts = make([]*Node, height)
+		}
+		for idx := 0; idx < height; idx++ {
+			n.nexts[idx], cur.nexts[idx] = cur.nexts[idx], n
 		}
 	} else {
 		// Descent may capture only part of the path: it may be shorter
@@ -217,15 +231,21 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 		// know that all the "lower" levels of descent will be populated
 		// (where "lower" is "closer to [0]"), so we just need to fill in
 		// the "top".
-		if len(n.nexts) > len(descent) {
-			_, extra := s.getEqOrLessThan(s.terminus, descent[len(descent)-1].Key, true)
+		if l := len(descent); height > l {
+			_, extra := s.getEqOrLessThan(s.terminus, descent[l-1].Key, true)
 			// Aside: because we know we'll find that Key, all the lower
 			// indices of extra will be nil.
-			descent = append(descent, extra[len(descent):]...)
+			copy(extra, descent)
+			descent = extra
 		}
-		for idx := 0; idx < len(n.nexts); idx++ {
-			n.nexts[idx] = descent[idx].nexts[idx]
-			descent[idx].nexts[idx] = n
+
+		if fixed {
+			n.nexts = descent[:height]
+		} else {
+			n.nexts = make([]*Node, height)
+		}
+		for idx := 0; idx < height; idx++ {
+			n.nexts[idx], descent[idx].nexts[idx] = descent[idx].nexts[idx], n
 		}
 	}
 	n._next().prev = n
@@ -260,8 +280,15 @@ func (s *SkipList) removeNode(n *Node) {
 		// of descent will be nil. But we know p == n.prev, so all of
 		// those pointers will be to n anyway, which we've already
 		// dealt with in the previous loop.
-		for idx := len(p.nexts); idx < len(n.nexts); idx++ {
-			descent[idx].nexts[idx] = n.nexts[idx]
+		if descent == nil {
+			// p either is s.terminus or is as tall as s.terminus
+			for idx := len(p.nexts); idx < len(n.nexts); idx++ {
+				descent[idx].nexts[idx] = n.nexts[idx]
+			}
+		} else {
+			for idx := len(p.nexts); idx < len(n.nexts); idx++ {
+				descent[idx].nexts[idx] = n.nexts[idx]
+			}
 		}
 	}
 }
