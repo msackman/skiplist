@@ -47,26 +47,33 @@ type Node struct {
 func New(rng *rand.Rand) *SkipList {
 	depth := defaultDepth
 
-	terminus := &Node{
-		heightRand: 0,
-		nexts:      make([]*Node, depth),
+	pair := struct {
+		SkipList
+		Node
+	}{
+		SkipList{
+			length:             0,
+			curDepth:           uint(depth),
+			localRand:          rng,
+			levelProbabilities: []float32{p},
+		},
+		Node{
+			heightRand: 0,
+			nexts:      make([]*Node, depth),
+		},
 	}
+
+	terminus := &pair.Node
 	terminus.prev = terminus
 	for idx := 0; idx < len(terminus.nexts); idx++ {
 		terminus.nexts[idx] = terminus
 	}
-	s := &SkipList{
-		length:    0,
-		terminus:  terminus,
-		curDepth:  uint(depth),
-		localRand: rng,
-	}
-	s.levelProbabilities = []float32{p}
-	//s.ptrs = make([]*Node, s.curDepth*(s.length+1))
+	s := &pair.SkipList
+	s.terminus = terminus
 	terminus.skiplist = s
 	s.determineCapacity()
 
-	s.validate()
+	// s.validate()
 
 	return s
 }
