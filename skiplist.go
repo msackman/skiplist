@@ -47,31 +47,24 @@ type Node struct {
 func New(rng *rand.Rand) *SkipList {
 	depth := defaultDepth
 
-	pair := &struct {
-		SkipList
-		Node
-	}{
-		SkipList{
-			length:             0,
-			curDepth:           uint(depth),
-			localRand:          rng,
-			levelProbabilities: []float32{p},
-		},
-		Node{
-			heightRand: 0,
-			nexts:      make([]*Node, depth),
-		},
+	s := &SkipList{
+		length:             0,
+		curDepth:           uint(depth),
+		localRand:          rng,
+		levelProbabilities: []float32{p},
 	}
+	s.determineCapacity()
 
-	terminus := &pair.Node
-	terminus.prev = terminus
+	terminus := s.getNode()
+	terminus.heightRand = 0
+	terminus.nexts = make([]*Node, depth)
 	for idx := 0; idx < len(terminus.nexts); idx++ {
 		terminus.nexts[idx] = terminus
 	}
-	s := &pair.SkipList
-	s.terminus = terminus
+	terminus.prev = terminus
 	terminus.skiplist = s
-	s.determineCapacity()
+
+	s.terminus = terminus
 
 	// s.validate()
 
@@ -141,27 +134,33 @@ func (s *SkipList) getNode() *Node {
 
 func (s *SkipList) nextPtrs(l int) []*Node {
 	if len(s.ptrs) < l {
-		s.ptrs = make([]*Node, s.curDepth*(s.length+1))
+		s.ptrs = make([]*Node, s.curDepth*s.curCapacity)
 	}
 	var ptrs []*Node
 	ptrs, s.ptrs = s.ptrs[:l], s.ptrs[l:]
 	return ptrs
 }
 
-func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, captureDescent bool) (*Node, bool, []*Node) {
+func (s *SkipList) getEqOrLessThan(cur *Node, k Comparable, descentHeight int) (*Node, bool, []*Node) {
 	// defer s.validate()
 
+	var descent []*Node
+	if descentHeight > 0 {
+		descent = s.nextPtrs(descentHeight)
+	}
+
 	if s.length == 0 {
-		return s.terminus, false, nil
+		return s.terminus, false, descent
 	}
 	if cur != s.terminus {
 		switch k.Compare(cur.Key) {
 		case EQ:
-			return cur, true, nil
+			return cur, true, descent
 		case LT:
-			return s.getEqOrLessThan(s.terminus, k, captureDescent)
+			return s.getEqOrLessThan(s.terminus, k, descentHeight)
 		}
 	}
+
 	// 1. Travel, not-descending, as far as possible
 	lvl := len(cur.nexts) - 1
 Outer1:
@@ -175,15 +174,18 @@ Outer1:
 			cur = n
 			lvl = len(cur.nexts) - 1
 		case EQ:
-			return n, true, nil
+			return n, true, descent
 		default:
 			break Outer1
 		}
 	}
+
 	// 2. Now descend as needed
-	var descent []*Node
-	if captureDescent {
-		descent = s.nextPtrs(lvl + 1)
+	if l := lvl + 1; descentHeight > l {
+		descent = descent[:l]
+		descentHeight = l
+	}
+	if lvl < descentHeight {
 		descent[lvl] = cur
 	}
 	for lvl--; lvl >= 0; lvl-- {
@@ -202,7 +204,7 @@ Outer1:
 				break Outer2
 			}
 		}
-		if captureDescent {
+		if lvl < descentHeight {
 			descent[lvl] = cur
 		}
 	}
@@ -215,14 +217,16 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 	// do this first even though we may not need to - if we do it after
 	// the getEqOrLessThan call, we may break descent.
 	s.ensureCapacity()
-	cur, found, descent := s.getEqOrLessThan(cur, k, true)
+
+	heightRand, height, fixed := s.chooseNumLevels()
+
+	cur, found, descent := s.getEqOrLessThan(cur, k, height)
 	if found {
 		cur.Value = v
 		return cur
 	}
 	// We didn't find k, so cur will be the node immediately prior to
 	// where k should go.
-	heightRand, height, fixed := s.chooseNumLevels()
 	if n == nil {
 		n = s.getNode()
 	}
@@ -233,14 +237,16 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 	n.skiplist = s
 
 	if len(cur.nexts) >= height {
-		if len(descent) >= height && fixed {
+		if fixed {
 			n.nexts = descent[:height]
 		} else {
 			n.nexts = make([]*Node, height)
+			s.ptrs = descent[:cap(descent)]
 		}
 		for idx := 0; idx < height; idx++ {
 			n.nexts[idx], cur.nexts[idx] = cur.nexts[idx], n
 		}
+
 	} else {
 		// Descent may capture only part of the path: it may be shorter
 		// than levels (in the case where the original cur is !=
@@ -250,7 +256,7 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 		// (where "lower" is "closer to [0]"), so we just need to fill in
 		// the "top".
 		if l := len(descent); height > l {
-			_, _, extra := s.getEqOrLessThan(s.terminus, descent[l-1].Key, true)
+			_, _, extra := s.getEqOrLessThan(s.terminus, descent[l-1].Key, height)
 			// Aside: because we know we'll find that Key, all the lower
 			// indices of extra will be nil.
 			copy(extra, descent)
@@ -258,9 +264,10 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 		}
 
 		if fixed {
-			n.nexts = descent[:height]
+			n.nexts = descent
 		} else {
 			n.nexts = make([]*Node, height)
+			s.ptrs = descent[:cap(descent)]
 		}
 		for idx := 0; idx < height; idx++ {
 			n.nexts[idx], descent[idx].nexts[idx] = descent[idx].nexts[idx], n
@@ -274,7 +281,7 @@ func (s *SkipList) insert(cur *Node, k Comparable, v interface{}, n *Node) *Node
 func (s *SkipList) remove(cur *Node, k Comparable) interface{} {
 	// defer s.validate()
 
-	n, found, _ := s.getEqOrLessThan(cur, k, false)
+	n, found, _ := s.getEqOrLessThan(cur, k, 0)
 	if !found {
 		return nil
 	}
@@ -292,13 +299,13 @@ func (s *SkipList) removeNode(n *Node) {
 	for idx := 0; idx < len(p.nexts) && idx < len(n.nexts); idx++ {
 		p.nexts[idx] = n.nexts[idx]
 	}
-	if len(p.nexts) < len(n.nexts) {
-		_, _, descent := s.getEqOrLessThan(s.terminus, p.Key, true)
+	if nNextLen, pNextLen := len(n.nexts), len(p.nexts); pNextLen < nNextLen {
+		_, _, descent := s.getEqOrLessThan(s.terminus, p.Key, nNextLen)
 		// because we know we're going to find Key, the lower indices
 		// of descent will be nil. But we know p == n.prev, so all of
 		// those pointers will be to n anyway, which we've already
 		// dealt with in the previous loop.
-		for idx := len(p.nexts); idx < len(n.nexts); idx++ {
+		for idx := pNextLen; idx < nNextLen; idx++ {
 			descent[idx].nexts[idx] = n.nexts[idx]
 		}
 	}
@@ -400,7 +407,7 @@ func (s *SkipList) validate() {
 }
 
 func (n *Node) Get(k Comparable) *Node {
-	m, found, _ := n.skiplist.getEqOrLessThan(n, k, false)
+	m, found, _ := n.skiplist.getEqOrLessThan(n, k, 0)
 	if found {
 		return m
 	} else {
