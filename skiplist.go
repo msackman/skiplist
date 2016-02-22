@@ -12,10 +12,10 @@ const (
 	defaultDepth = 2
 )
 
-type Cmp uint8
+type Cmp int8
 
 const (
-	LT Cmp = iota
+	LT Cmp = iota - 1
 	EQ
 	GT
 )
