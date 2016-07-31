@@ -121,14 +121,11 @@ func (s *SkipList) ensureCapacity() {
 }
 
 func (s *SkipList) getNode() *Node {
-	l := len(s.nodes)
-	if l == 0 {
-		l = int(s.curCapacity)
-		s.nodes = make([]Node, l)
+	if len(s.nodes) == 0 {
+		s.nodes = make([]Node, int(s.curCapacity))
 	}
-	l--
-	n := &s.nodes[l]
-	s.nodes = s.nodes[:l]
+	n := &s.nodes[0]
+	s.nodes = s.nodes[1:]
 	return n
 }
 
@@ -286,8 +283,9 @@ func (s *SkipList) remove(cur *Node, k Comparable) interface{} {
 		return nil
 	}
 	s.removeNode(n)
+	val := n.Value
 	n.nullify()
-	return n.Value
+	return val
 }
 
 func (s *SkipList) removeNode(n *Node) {
@@ -451,6 +449,8 @@ func (n *Node) nullify() {
 	// this is called when n is removed from the skiplist. It's really
 	// just to ensure that if someone has a reference to n lying
 	// around, they can't use it.
+	n.Key = nil
+	n.Value = nil
 	n.prev = nil
 	n.nexts = nil
 	n.skiplist = nil
